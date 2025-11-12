@@ -45,10 +45,10 @@ jobs:
           if (-not (Test-Path "ngrok.exe")) { exit 1 }
 
       # -------------------------------------------------
-      - name: Authenticate ngrok
-        shell: pwsh
-        run: |
-          .\ngrok.exe authtoken ${{ secrets.NGROK_AUTHTOKEN }}
+      # - name: Authenticate ngrok
+      #  shell: pwsh
+      #  run: |
+      #    .\ngrok.exe authtoken ${{ secrets.NGROK_AUTHTOKEN }}
 
       # -------------------------------------------------
       # Start the FastAPI server **in the foreground** (uvicorn)
