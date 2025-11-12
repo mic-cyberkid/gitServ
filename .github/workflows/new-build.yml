@@ -29,7 +29,7 @@ jobs:
       - name: Start FastAPI server (background)
         run: |
           $proc = Start-Process -FilePath "python" `
-                                -ArgumentList "-m", "uvicorn", "main:server", `
+                                -ArgumentList "-m", "uvicorn", "main:app", `
                                               "--host", "0.0.0.0", "--port", "8000" `
                                 -PassThru -NoNewWindow
           # Save the PID so we can kill it later (optional)
