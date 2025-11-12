@@ -1,12 +1,19 @@
 import httpx
 import time
+import sys
+import os
 
-# Wait for server to start
-time.sleep(25)
+# Get ngrok URL from env var (set in workflow)
+base_url = os.environ.get("NGROK_URL", "http://localhost:8000")
+if not base_url.startswith(("http://", "https://")):
+    base_url = "https://" + base_url  # ngrok provides HTTPS
 
-base_url = "http://localhost:8000"
+print(f"Using base URL: {base_url}")
 
-with httpx.Client(base_url=base_url, timeout=10.0) as client:
+# Wait for server to start (increased for ngrok setup)
+time.sleep(10)
+
+with httpx.Client(base_url=base_url, timeout=30.0) as client:
     try:
         resp = client.get("/")
         print("Root response:", resp.json())
@@ -18,7 +25,7 @@ with httpx.Client(base_url=base_url, timeout=10.0) as client:
             print("API test passed!")
         else:
             print("API test failed!")
-            exit(1)
+            sys.exit(1)
     except Exception as e:
         print("Client error:", e)
-        exit(1)
+        sys.exit(1)
