@@ -1,4 +1,4 @@
-name: Test FastAPI Server and Client
+name: Test FastAPI Server and Client with ngrok
 
 on:
   push:
@@ -24,17 +24,44 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Start FastAPI server
+      - name: Download ngrok
         run: |
-          Start-Process -FilePath "python" -ArgumentList "server.py" -NoNewWindow
-          echo "Server started in background..."
-          Start-Sleep -Seconds 8  # Give server time to boot
+          Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile ngrok.zip
+          Expand-Archive ngrok.zip -DestinationPath .
+          # Make executable (not strictly needed on Windows, but ensures)
+          .\ngrok.exe authtoken ${{ secrets.NGROK_AUTHTOKEN }}
 
-      - name: Run Python client
+      - name: Start FastAPI server and ngrok tunnel
+        run: |
+          # Start server in foreground (more reliable)
+          Start-Job -ScriptBlock { python server.py } | Out-Null
+          echo "Server started in background job..."
+
+          # Wait a bit for server to bind
+          Start-Sleep -Seconds 5
+
+          # Start ngrok tunnel to port 8000 in background
+          Start-Job -ScriptBlock { .\ngrok.exe http 8000 --log=stdout } | Out-Null
+          echo "ngrok tunnel started in background job..."
+
+          # Wait for ngrok to initialize and expose URL
+          Start-Sleep -Seconds 10
+
+          # Fetch ngrok URL from API (requires authtoken set)
+          $ngrokUrl = (Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -Method Get).tunnels[0].public_url
+          echo "NGROK_URL=$ngrokUrl" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output "Public ngrok URL: $ngrokUrl"
+
+      - name: Run Python client against ngrok URL
         run: python client.py
+        env:
+          NGROK_URL: ${{ env.NGROK_URL }}
 
-      # Optional: Keep server alive briefly to show logs (for debugging)
-      - name: Show server logs (debug)
+      # Cleanup: Stop jobs and ngrok
+      - name: Cleanup
         if: always()
         run: |
-          Get-Process -Name "python" -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Job | Stop-Job -Force
+          Get-Job | Remove-Job
+          # Kill any lingering ngrok/python processes
+          Get-Process -Name "ngrok", "python" -ErrorAction SilentlyContinue | Stop-Process -Force
