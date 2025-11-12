@@ -1,0 +1,40 @@
+name: Test FastAPI Server and Client
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-api:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Start FastAPI server
+        run: |
+          Start-Process -FilePath "python" -ArgumentList "server.py" -NoNewWindow
+          echo "Server started in background..."
+          Start-Sleep -Seconds 8  # Give server time to boot
+
+      - name: Run Python client
+        run: python client.py
+
+      # Optional: Keep server alive briefly to show logs (for debugging)
+      - name: Show server logs (debug)
+        if: always()
+        run: |
+          Get-Process -Name "python" -ErrorAction SilentlyContinue | Stop-Process -Force
