@@ -10,99 +10,84 @@ jobs:
   test:
     runs-on: windows-latest
     env:
-      PYTHONIOENCODING: utf-8   # make sure prints are UTF-8
+      PYTHONIOENCODING: utf-8
 
     steps:
-      # -------------------------------------------------
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # -------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # -------------------------------------------------
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # -------------------------------------------------
-      - name: Download ngrok (Windows zip)
+      - name: Download ngrok
         shell: pwsh
         run: |
           $url = "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip"
           Invoke-WebRequest -Uri $url -OutFile ngrok.zip -UseBasicParsing
 
-      # -------------------------------------------------
       - name: Extract ngrok
         shell: pwsh
         run: |
           Expand-Archive -Path ngrok.zip -DestinationPath . -Force
-          # Verify it is there
           if (-not (Test-Path "ngrok.exe")) { exit 1 }
 
-      # -------------------------------------------------
-      # - name: Authenticate ngrok
-      #  shell: pwsh
-      #  run: |
-      #    .\ngrok.exe authtoken ${{ secrets.NGROK_AUTHTOKEN }}
 
-      # -------------------------------------------------
-      # Start the FastAPI server **in the foreground** (uvicorn)
-      # and capture its PID so we can kill it later.
       - name: Start FastAPI server
         id: server
         shell: pwsh
         run: |
           $proc = Start-Process -FilePath "python" -ArgumentList "server.py" -PassThru -NoNewWindow
           echo "SERVER_PID=$($proc.Id)" >> $env:GITHUB_ENV
-          Write-Host "FastAPI started with PID $($proc.Id)"
-          # Give uvicorn a moment to bind
-          Start-Sleep -Seconds 5
+          Write-Host "FastAPI PID: $($proc.Id)"
+          Start-Sleep -Seconds 5  # Wait for uvicorn to bind
 
-      # -------------------------------------------------
-      # Start ngrok in the background and wait for the tunnel URL
-      - name: Start ngrok tunnel
+      - name: Start ngrok and get public URL
         shell: pwsh
         run: |
-          # Run ngrok in background
-          $ngrokProc = Start-Process -FilePath ".\ngrok.exe" -ArgumentList "http","8000","--log=stdout" -PassThru -NoNewWindow
+          # Start ngrok in background
+          $ngrok = Start-Process -FilePath ".\ngrok.exe" -ArgumentList "http","8000","--log=stdout" -PassThru -NoNewWindow
 
-          # Wait until the local API is reachable
-          $max = 30
-          $i = 0
-          do {
+          # Poll ngrok API until tunnel is ready
+          $maxAttempts = 30
+          $attempt = 0
+          $publicUrl = $null
+
+          while ($attempt -lt $maxAttempts -and -not $publicUrl) {
+            $attempt++
             Start-Sleep -Seconds 1
-            $i++
-            try, $resp = try { Invoke-RestMethod http://localhost:4040/api/tunnels -ErrorAction SilentlyContinue } catch { $null }
-          } while (-not $resp -and $i -lt $max)
+            try {
+              $resp = Invoke-RestMethod "http://127.0.0.1:4040/api/tunnels" -TimeoutSec 5
+              $publicUrl = $resp.tunnels[0].public_url
+            } catch {
+              # Ignore errors during startup
+            }
+          }
 
-          if (-not $resp) {
-            Write-Error "ngrok tunnel never became ready"
+          if (-not $publicUrl) {
+            Write-Error "Failed to get ngrok URL after $maxAttempts attempts"
             exit 1
           }
 
-          $publicUrl = $resp.tunnels[0].public_url
           echo "NGROK_URL=$publicUrl" >> $env:GITHUB_ENV
-          Write-Host "Public ngrok URL: $publicUrl"
+          Write-Host "ngrok URL: $publicUrl"
 
-      # -------------------------------------------------
-      - name: Run client against ngrok URL
+      - name: Run client
         env:
           NGROK_URL: ${{ env.NGROK_URL }}
         run: python client.py
 
-      # -------------------------------------------------
-      - name: Cleanup (always)
+      - name: Cleanup
         if: always()
         shell: pwsh
         run: |
-          # Kill server
           if ($env:SERVER_PID) {
             Stop-Process -Id $env:SERVER_PID -Force -ErrorAction SilentlyContinue
           }
-          # Kill ngrok
           Get-Process -Name "ngrok" -ErrorAction SilentlyContinue | Stop-Process -Force
