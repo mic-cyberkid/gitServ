@@ -65,7 +65,10 @@ jobs:
       - name: Run client
         env:
           NGROK_URL: ${{ env.NGROK_URL }}
-        run: python client.py
+        run: |
+            Start-Sleep -Seconds 90
+            python client.py
+            
 
       - name: Cleanup
         if: always()
