@@ -3,7 +3,7 @@ import sys
 import time
 import httpx
 
-base_url = os.getenv("SERVEO_URL", "http://127.0.0.1:8000").strip()
+base_url = os.getenv("PINGGY_URL", "http://localhost:8000").strip()
 if base_url and not base_url.startswith(("http://", "https://")):
     base_url = "https://" + base_url  # Serveo uses HTTPS
 
