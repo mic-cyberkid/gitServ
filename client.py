@@ -1,16 +1,14 @@
-import os
-import sys
-import time
-import httpx
+import os, sys, time, httpx
 
 base_url = os.getenv("NGROK_URL", "http://localhost:8000").strip()
-if base_url and not base_url.startswith(("http://", "https://")):
-    base_url = "https://" + base_url  # Serveo uses HTTPS
+# Force HTTPS for ngrok
+if base_url.startswith("http://"):
+    base_url = "https://" + base_url[len("http://"):]
 
 print(f"Testing API at: {base_url}")
-time.sleep(3)  # Safety delay
+time.sleep(5)   # give ngrok + server time
 
-with httpx.Client(base_url=base_url, timeout=15.0) as client:
+with httpx.Client(base_url=base_url, timeout=15.0, verify=False) as client:  # <-- verify=False
     try:
         r1 = client.get("/")
         print("Root:", r1.json())
