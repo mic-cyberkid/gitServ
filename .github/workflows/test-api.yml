@@ -1,4 +1,4 @@
-name: Test FastAPI with ngrok (Windows)
+name: Test FastAPI with Serveo.net (Windows)
 
 on:
   push:
@@ -26,19 +26,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Download ngrok
-        shell: pwsh
-        run: |
-          $url = "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip"
-          Invoke-WebRequest -Uri $url -OutFile ngrok.zip -UseBasicParsing
-
-      - name: Extract ngrok
-        shell: pwsh
-        run: |
-          Expand-Archive -Path ngrok.zip -DestinationPath . -Force
-          if (-not (Test-Path "ngrok.exe")) { exit 1 }
-
-
       - name: Start FastAPI server
         id: server
         shell: pwsh
@@ -48,13 +35,14 @@ jobs:
           Write-Host "FastAPI PID: $($proc.Id)"
           Start-Sleep -Seconds 5  # Wait for uvicorn to bind
 
-      - name: Start ngrok and get public URL
+      - name: Start Serveo tunnel and get public URL
         shell: pwsh
         run: |
-          # Start ngrok in background
-          $ngrok = Start-Process -FilePath ".\ngrok.exe" -ArgumentList "http","8000","--log=stdout" -PassThru -NoNewWindow
+          # Start Serveo in background (random subdomain, forward to port 8000)
+          $sshArgs = @('-R', '80:localhost:8000', 'serveo.net')
+          $tunnelProc = Start-Process -FilePath "ssh" -ArgumentList $sshArgs -PassThru -NoNewWindow -RedirectStandardOutput "serveo.log" -RedirectStandardError "serveo_err.log"
 
-          # Poll ngrok API until tunnel is ready
+          # Poll the log file for the public URL (Serveo prints it like "Forwarding HTTP traffic from https://abc123.serveo.net")
           $maxAttempts = 30
           $attempt = 0
           $publicUrl = $null
@@ -62,25 +50,32 @@ jobs:
           while ($attempt -lt $maxAttempts -and -not $publicUrl) {
             $attempt++
             Start-Sleep -Seconds 1
-            try {
-              $resp = Invoke-RestMethod "http://127.0.0.1:4040/api/tunnels" -TimeoutSec 5
-              $publicUrl = $resp.tunnels[0].public_url
-            } catch {
-              # Ignore errors during startup
+            if (Test-Path "serveo.log") {
+              $logContent = Get-Content "serveo.log" -Raw
+              if ($logContent -match 'https://([a-z0-9-]+\.serveo\.net)') {
+                $publicUrl = $matches[0]
+              }
+            }
+            # Also check stderr in case of output there
+            if (Test-Path "serveo_err.log" -and -not $publicUrl) {
+              $errContent = Get-Content "serveo_err.log" -Raw
+              if ($errContent -match 'https://([a-z0-9-]+\.serveo\.net)') {
+                $publicUrl = $matches[0]
+              }
             }
           }
 
           if (-not $publicUrl) {
-            Write-Error "Failed to get ngrok URL after $maxAttempts attempts"
+            Write-Error "Failed to get Serveo URL after $maxAttempts attempts. Log: $(Get-Content serveo.log -Raw). Err: $(Get-Content serveo_err.log -Raw)"
             exit 1
           }
 
-          echo "NGROK_URL=$publicUrl" >> $env:GITHUB_ENV
-          Write-Host "ngrok URL: $publicUrl"
+          echo "SERVEO_URL=$publicUrl" >> $env:GITHUB_ENV
+          Write-Host "Serveo URL: $publicUrl"
 
       - name: Run client
         env:
-          NGROK_URL: ${{ env.NGROK_URL }}
+          SERVEO_URL: ${{ env.SERVEO_URL }}
         run: python client.py
 
       - name: Cleanup
@@ -90,4 +85,5 @@ jobs:
           if ($env:SERVER_PID) {
             Stop-Process -Id $env:SERVER_PID -Force -ErrorAction SilentlyContinue
           }
-          Get-Process -Name "ngrok" -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Process -Name "ssh" -ErrorAction SilentlyContinue | Stop-Process -Force
+          Remove-Item "serveo.log", "serveo_err.log" -ErrorAction SilentlyContinue
