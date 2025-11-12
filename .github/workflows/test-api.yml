@@ -33,40 +33,50 @@ jobs:
           $proc = Start-Process -FilePath "python" -ArgumentList "server.py" -PassThru -NoNewWindow
           echo "SERVER_PID=$($proc.Id)" >> $env:GITHUB_ENV
           Write-Host "FastAPI PID: $($proc.Id)"
-          Start-Sleep -Seconds 5  # Wait for uvicorn to bind
+          Start-Sleep -Seconds 5
 
-      - name: Start Serveo tunnel and get public URL
+      - name: Start Serveo tunnel and extract URL
         shell: pwsh
         run: |
-          # Start Serveo in background (random subdomain, forward to port 8000)
-          $sshArgs = @('-R', '80:localhost:8000', 'serveo.net')
+          # Clear old logs
+          Remove-Item "serveo.log", "serveo_err.log" -ErrorAction SilentlyContinue
+
+          # Start Serveo: forward local 8000 to public HTTPS
+          $sshArgs = "-R", "80:localhost:8000", "serveo.net"
           $tunnelProc = Start-Process -FilePath "ssh" -ArgumentList $sshArgs -PassThru -NoNewWindow -RedirectStandardOutput "serveo.log" -RedirectStandardError "serveo_err.log"
 
-          # Poll the log file for the public URL (Serveo prints it like "Forwarding HTTP traffic from https://abc123.serveo.net")
+          # Wait and poll logs for URL
           $maxAttempts = 30
           $attempt = 0
           $publicUrl = $null
 
-          while ($attempt -lt $maxAttempts -and -not $publicUrl) {
+          while ($attempt -lt $maxAttempts -and (-not $publicUrl)) {
             $attempt++
             Start-Sleep -Seconds 1
+
+            # Check stdout
             if (Test-Path "serveo.log") {
-              $logContent = Get-Content "serveo.log" -Raw
-              if ($logContent -match 'https://([a-z0-9-]+\.serveo\.net)') {
+              $log = Get-Content "serveo.log" -Raw -ErrorAction SilentlyContinue
+              if ($log -match 'https://([a-z0-9-]+\.serveo\.net)') {
                 $publicUrl = $matches[0]
+                break
               }
             }
-            # Also check stderr in case of output there
-            if (Test-Path "serveo_err.log" -and -not $publicUrl) {
-              $errContent = Get-Content "serveo_err.log" -Raw
-              if ($errContent -match 'https://([a-z0-9-]+\.serveo\.net)') {
+
+            # Check stderr
+            if (Test-Path "serveo_err.log") {
+              $err = Get-Content "serveo_err.log" -Raw -ErrorAction SilentlyContinue
+              if ($err -match 'https://([a-z0-9-]+\.serveo\.net)') {
                 $publicUrl = $matches[0]
+                break
               }
             }
           }
 
           if (-not $publicUrl) {
-            Write-Error "Failed to get Serveo URL after $maxAttempts attempts. Log: $(Get-Content serveo.log -Raw). Err: $(Get-Content serveo_err.log -Raw)"
+            $logOut = Get-Content "serveo.log" -Raw -ErrorAction SilentlyContinue
+            $errOut = Get-Content "serveo_err.log" -Raw -ErrorAction SilentlyContinue
+            Write-Error "Failed to get Serveo URL. stdout: $logOut stderr: $errOut"
             exit 1
           }
 
