@@ -1,4 +1,4 @@
-name: Test FastAPI with Serveo.net (Windows)
+name: Test FastAPI with Pinggy.io (Windows)
 
 on:
   push:
@@ -33,19 +33,19 @@ jobs:
           $proc = Start-Process -FilePath "python" -ArgumentList "server.py" -PassThru -NoNewWindow
           echo "SERVER_PID=$($proc.Id)" >> $env:GITHUB_ENV
           Write-Host "FastAPI PID: $($proc.Id)"
-          Start-Sleep -Seconds 5
+          Start-Sleep -Seconds 5  # Wait for uvicorn to bind
 
-      - name: Start Serveo tunnel and extract URL
+      - name: Start Pinggy tunnel and extract URL
         shell: pwsh
         run: |
           # Clear old logs
-          Remove-Item "serveo.log", "serveo_err.log" -ErrorAction SilentlyContinue
+          Remove-Item "pinggy.log", "pinggy_err.log" -ErrorAction SilentlyContinue
 
-          # Start Serveo: forward local 8000 to public HTTPS
-          $sshArgs = "-R", "80:localhost:8000", "serveo.net"
-          $tunnelProc = Start-Process -FilePath "ssh" -ArgumentList $sshArgs -PassThru -NoNewWindow -RedirectStandardOutput "serveo.log" -RedirectStandardError "serveo_err.log"
+          # Start Pinggy: forward local 8000 to public HTTPS (port 443 for secure connection)
+          $sshArgs = @('-p', '443', '-R0:127.0.0.1:8000', '-L4300:127.0.0.1:4300', 'qr@a.pinggy.io')
+          $tunnelProc = Start-Process -FilePath "ssh" -ArgumentList $sshArgs -PassThru -NoNewWindow -RedirectStandardOutput "pinggy.log" -RedirectStandardError "pinggy_err.log"
 
-          # Wait and poll logs for URL
+          # Wait and poll logs for URL (Pinggy prints it like "https://abc123.pinggy.io")
           $maxAttempts = 30
           $attempt = 0
           $publicUrl = $null
@@ -55,18 +55,18 @@ jobs:
             Start-Sleep -Seconds 1
 
             # Check stdout
-            if (Test-Path "serveo.log") {
-              $log = Get-Content "serveo.log" -Raw -ErrorAction SilentlyContinue
-              if ($log -match 'https://([a-z0-9-]+\.serveo\.net)') {
+            if (Test-Path "pinggy.log") {
+              $log = Get-Content "pinggy.log" -Raw -ErrorAction SilentlyContinue
+              if ($log -match 'https://([a-z0-9-]+\.pinggy\.io)') {
                 $publicUrl = $matches[0]
                 break
               }
             }
 
             # Check stderr
-            if (Test-Path "serveo_err.log") {
-              $err = Get-Content "serveo_err.log" -Raw -ErrorAction SilentlyContinue
-              if ($err -match 'https://([a-z0-9-]+\.serveo\.net)') {
+            if (Test-Path "pinggy_err.log") {
+              $err = Get-Content "pinggy_err.log" -Raw -ErrorAction SilentlyContinue
+              if ($err -match 'https://([a-z0-9-]+\.pinggy\.io)') {
                 $publicUrl = $matches[0]
                 break
               }
@@ -74,18 +74,18 @@ jobs:
           }
 
           if (-not $publicUrl) {
-            $logOut = Get-Content "serveo.log" -Raw -ErrorAction SilentlyContinue
-            $errOut = Get-Content "serveo_err.log" -Raw -ErrorAction SilentlyContinue
-            Write-Error "Failed to get Serveo URL. stdout: $logOut stderr: $errOut"
+            $logOut = Get-Content "pinggy.log" -Raw -ErrorAction SilentlyContinue
+            $errOut = Get-Content "pinggy_err.log" -Raw -ErrorAction SilentlyContinue
+            Write-Error "Failed to get Pinggy URL. stdout: $logOut stderr: $errOut"
             exit 1
           }
 
-          echo "SERVEO_URL=$publicUrl" >> $env:GITHUB_ENV
-          Write-Host "Serveo URL: $publicUrl"
+          echo "PINGGY_URL=$publicUrl" >> $env:GITHUB_ENV
+          Write-Host "Pinggy URL: $publicUrl"
 
       - name: Run client
         env:
-          SERVEO_URL: ${{ env.SERVEO_URL }}
+          PINGGY_URL: ${{ env.PINGGY_URL }}
         run: python client.py
 
       - name: Cleanup
@@ -96,4 +96,4 @@ jobs:
             Stop-Process -Id $env:SERVER_PID -Force -ErrorAction SilentlyContinue
           }
           Get-Process -Name "ssh" -ErrorAction SilentlyContinue | Stop-Process -Force
-          Remove-Item "serveo.log", "serveo_err.log" -ErrorAction SilentlyContinue
+          Remove-Item "pinggy.log", "pinggy_err.log" -ErrorAction SilentlyContinue
