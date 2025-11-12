@@ -2,9 +2,9 @@ import httpx
 import time
 
 # Wait for server to start
-time.sleep(5)
+time.sleep(25)
 
-base_url = "http://127.0.0.1:8000"
+base_url = "http://localhost:8000"
 
 with httpx.Client(base_url=base_url, timeout=10.0) as client:
     try:
