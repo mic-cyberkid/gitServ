@@ -52,35 +52,15 @@ jobs:
           Write-Host "FastAPI PID: $($proc.Id)"
           Start-Sleep -Seconds 5  # Wait for uvicorn to bind
 
-      - name: Start ngrok and get public URL
+      - name: Start ngrok and get URL
         shell: pwsh
         run: |
-          # Start ngrok in background
-          $ngrok = Start-Process -FilePath ".\ngrok.exe" -ArgumentList "http","8000","--log=stdout" -PassThru -NoNewWindow
-
-          # Poll ngrok API until tunnel is ready
-          $maxAttempts = 30
-          $attempt = 0
-          $publicUrl = $null
-
-          while ($attempt -lt $maxAttempts -and -not $publicUrl) {
-            $attempt++
-            Start-Sleep -Seconds 1
-            try {
-              $resp = Invoke-RestMethod "http://localhost:4040/api/tunnels" -TimeoutSec 5
-              $publicUrl = $resp.tunnels[0].public_url
-            } catch {
-              # Ignore errors during startup
-            }
-          }
-
-          if (-not $publicUrl) {
-            Write-Error "Failed to get ngrok URL after $maxAttempts attempts"
-            exit 1
-          }
-
-          echo "NGROK_URL=$publicUrl" >> $env:GITHUB_ENV
-          Write-Host "ngrok URL: $publicUrl"
+         $ngrok = Start-Process -FilePath ".\ngrok.exe" -ArgumentList "http","8000","--log=stdout" -PassThru -NoNewWindow
+         Start-Sleep -Seconds 8
+         $tunnels = Invoke-RestMethod http://127.0.0.1:4040/api/tunnels
+         $url = $tunnels.tunnels[0].public_url
+         echo "NGROK_URL=$url" >> $env:GITHUB_ENV
+         Write-Host "ngrok URL: $url"
 
       - name: Run client
         env:
