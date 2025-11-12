@@ -1,20 +1,26 @@
-import os, sys, time, httpx
+import os
+import sys
+import time
+import httpx
 
-base_url = os.getenv("NGROK_URL", "http://localhost:8000").strip()
-# Force HTTPS for ngrok
-if base_url.startswith("http://"):
-    base_url = "https://" + base_url[len("http://"):]
+# ngrok free gives HTTPS URL, but we forward HTTP → use HTTPS but allow HTTP content
+base_url = os.getenv("NGROK_URL")
+if not base_url:
+    base_url = "http://localhost:8000"
+else:
+    # ngrok gives https://..., keep it
+    pass
 
 print(f"Testing API at: {base_url}")
-time.sleep(5)   # give ngrok + server time
+time.sleep(8)  # wait for server + tunnel
 
-with httpx.Client(base_url=base_url, timeout=15.0, verify=False) as client:  # <-- verify=False
+with httpx.Client(base_url=base_url, timeout=15.0, verify=False) as client:
     try:
         r1 = client.get("/")
-        print("Root:", r1.json())
+        print("Root response:", r1.json())
 
         r2 = client.get("/health")
-        print("Health:", r2.json())
+        print("Health response:", r2.json())
 
         if r2.status_code == 200 and r2.json().get("status") == "ok":
             print("API TEST PASSED")
