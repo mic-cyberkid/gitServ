@@ -38,45 +38,23 @@ jobs:
       - name: Start Pinggy tunnel and extract URL
         shell: pwsh
         run: |
-          # Clear old logs
-          Remove-Item "pinggy.log", "pinggy_err.log" -ErrorAction SilentlyContinue
+          # SSH args for non-interactive tunnel (no TTY, no host key prompts)
+          $sshArgs = @('-T', '-p', '443', '-R0:localhost:8000', '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=NUL', 'free.pinggy.io')
 
-          # Start Pinggy: forward local 8000 to public HTTPS (port 443 for secure connection)
-          $sshArgs = @('-p', '443', '-R0:127.0.0.1:8000', '-L4300:127.0.0.1:4300', 'qr@a.pinggy.io')
-          $tunnelProc = Start-Process -FilePath "ssh" -ArgumentList $sshArgs -PassThru -NoNewWindow -RedirectStandardOutput "pinggy.log" -RedirectStandardError "pinggy_err.log"
+          # Run SSH in background (&) and capture output to variable (streams console output)
+          $output = ssh $sshArgs 2>$null | Out-String
 
-          # Wait and poll logs for URL (Pinggy prints it like "https://abc123.pinggy.io")
-          $maxAttempts = 30
-          $attempt = 0
+          # Wait a bit for output to generate, then parse for HTTPS URL
+          Start-Sleep -Seconds 3
           $publicUrl = $null
 
-          while ($attempt -lt $maxAttempts -and (-not $publicUrl)) {
-            $attempt++
-            Start-Sleep -Seconds 1
-
-            # Check stdout
-            if (Test-Path "pinggy.log") {
-              $log = Get-Content "pinggy.log" -Raw -ErrorAction SilentlyContinue
-              if ($log -match 'https://([a-z0-9-]+\.pinggy\.io)') {
-                $publicUrl = $matches[0]
-                break
-              }
-            }
-
-            # Check stderr
-            if (Test-Path "pinggy_err.log") {
-              $err = Get-Content "pinggy_err.log" -Raw -ErrorAction SilentlyContinue
-              if ($err -match 'https://([a-z0-9-]+\.pinggy\.io)') {
-                $publicUrl = $matches[0]
-                break
-              }
-            }
+          # Extract HTTPS URL from output (Pinggy format: https://random.pinggy.link)
+          if ($output -match 'https://([a-z0-9-]+\.pinggy\..+)') {
+            $publicUrl = $matches[0]
           }
 
           if (-not $publicUrl) {
-            $logOut = Get-Content "pinggy.log" -Raw -ErrorAction SilentlyContinue
-            $errOut = Get-Content "pinggy_err.log" -Raw -ErrorAction SilentlyContinue
-            Write-Error "Failed to get Pinggy URL. stdout: $logOut stderr: $errOut"
+            Write-Error "Failed to get Pinggy URL. Output: $output"
             exit 1
           }
 
@@ -96,4 +74,3 @@ jobs:
             Stop-Process -Id $env:SERVER_PID -Force -ErrorAction SilentlyContinue
           }
           Get-Process -Name "ssh" -ErrorAction SilentlyContinue | Stop-Process -Force
-          Remove-Item "pinggy.log", "pinggy_err.log" -ErrorAction SilentlyContinue
